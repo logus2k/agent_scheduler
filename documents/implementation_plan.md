@@ -1,4 +1,4 @@
-# Implementation Plan: Agent Scheduler
+# Implementation Plan: Scheduler Agent
 
 Goal of phase 1: a **running container** that exposes the FastAPI admin API and emits
 valid `EventEnvelope` messages onto `valkey-bus` on schedule. Phases 2–3 (Client SDK

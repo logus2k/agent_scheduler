@@ -1,6 +1,6 @@
-# Client SDK: Agent Scheduler
+# Client SDK: Scheduler Agent
 
-How to drive the Agent Scheduler from your own service in **Python** or
+How to drive Scheduler Agent from your own service in **Python** or
 **JavaScript (ES6)**. Both reference clients are thin wrappers over the REST API
 described in [interface_specification.md](interface_specification.md) — same
 endpoints, same models, typed errors.

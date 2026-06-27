@@ -1,4 +1,4 @@
-# Agent Scheduler — Usage Guide & Examples
+# Scheduler Agent — Usage Guide & Examples
 
 Six common things you can do from this admin screen. Each shows exactly what to
 put in the **Create job** form. Every field also has a `?` badge — hover or focus

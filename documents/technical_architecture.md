@@ -1,4 +1,4 @@
-# Technical Architecture: Reactive Agent Scheduler
+# Technical Architecture: Scheduler Agent (Reactive Trigger Service)
 
 The `agent_scheduler` is a **single-process, containerized microservice** that owns
 time-based execution triggers for the `logus2k` ecosystem. It runs **FastAPI** and

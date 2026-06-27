@@ -1,4 +1,4 @@
-# Interface Specification: Agent Scheduler API
+# Interface Specification: Scheduler Agent API
 
 RESTful interface for the **single-process** `agent_scheduler` (FastAPI + APScheduler).
 All mutations act on the live in-process `AsyncIOScheduler` and are persisted to the

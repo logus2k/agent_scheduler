@@ -1,6 +1,6 @@
 # Admin Web UI
 
-A lightweight administration UI for the Agent Scheduler, served by the **same
+A lightweight administration UI for Scheduler Agent, served by the **same
 container** as the API — no separate frontend service, no CORS, no build step.
 
 ## Where it lives
