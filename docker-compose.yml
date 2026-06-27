@@ -1,0 +1,32 @@
+services:
+  agent-scheduler-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agent_scheduler:1.0
+    container_name: agent-scheduler-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Reach the bus by its service name on the shared network.
+      VALKEY_HOST: valkey-bus
+    ports:
+      # Admin API, localhost-bound (nginx fronts external access).
+      - "127.0.0.1:6816:6816"
+    networks:
+      - logus2k_network
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:6816/health'); sys.exit(0)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# valkey-bus is owned by the agent_bus compose project; we only join the network.
+networks:
+  logus2k_network:
+    external: true
