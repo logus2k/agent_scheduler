@@ -69,6 +69,9 @@ class Settings:
     api_host: str = _str("API_HOST", "0.0.0.0")
     api_port: int = _int("API_PORT", 6816)
 
+    # --- Admin Web UI (static, served from this same process at /admin) ---
+    frontend_dir: str = _str("FRONTEND_DIR", "frontend")
+
     # --- Logging ---
     log_level: str = _str("LOG_LEVEL", "INFO")
 

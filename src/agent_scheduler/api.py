@@ -7,11 +7,13 @@ persisted to RedisJobStore in the same call. No second process to sync with.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from apscheduler.jobstores.base import ConflictingIdError, JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi.staticfiles import StaticFiles
 
 from . import emitter
 from .config import settings
@@ -180,6 +182,17 @@ def create_app(
         if not ok:
             raise HTTPException(status_code=503, detail=body)
         return body
+
+    # --- admin web UI (static, same-origin so no CORS) ---------------------
+    if os.path.isdir(settings.frontend_dir):
+        app.mount(
+            "/admin",
+            StaticFiles(directory=settings.frontend_dir, html=True),
+            name="admin",
+        )
+        log.info("admin UI mounted at /admin (from %s)", settings.frontend_dir)
+    else:
+        log.warning("frontend dir %r not found; /admin disabled", settings.frontend_dir)
 
     return app
 

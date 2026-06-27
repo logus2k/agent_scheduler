@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent Scheduler — Admin</title>
+  <script>
+    // Set theme before first paint to avoid a flash of the wrong theme.
+    document.documentElement.setAttribute("data-theme", localStorage.getItem("theme") || "dark");
+  </script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Agent Scheduler <span class="muted">Admin</span></h1>
+    <div class="topbar-right">
+      <div class="health" id="health" title="Service health">
+        <span class="dot" id="health-dot"></span>
+        <span id="health-text">checking…</span>
+      </div>
+      <button class="ghost theme-toggle" id="theme-toggle" title="Toggle light/dark">
+        <span id="theme-icon">☀️</span><span id="theme-label">Light</span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Create job</h2>
+      <form id="create-form" autocomplete="off">
+        <div class="grid">
+          <label>Job ID
+            <input name="job_id" required pattern="[A-Za-z0-9._:\-]+"
+                   placeholder="nightly-report" />
+          </label>
+
+          <label>Trigger
+            <select name="trigger_type" id="trigger-type">
+              <option value="interval">interval</option>
+              <option value="cron">cron</option>
+              <option value="date">date</option>
+            </select>
+          </label>
+
+          <!-- interval args -->
+          <div class="trigger-args" data-for="interval">
+            <label>Seconds<input type="number" name="seconds" min="0" placeholder="0" /></label>
+            <label>Minutes<input type="number" name="minutes" min="0" placeholder="0" /></label>
+            <label>Hours<input type="number" name="hours" min="0" placeholder="0" /></label>
+            <label>Days<input type="number" name="days" min="0" placeholder="0" /></label>
+          </div>
+
+          <!-- cron args -->
+          <div class="trigger-args" data-for="cron" hidden>
+            <label>Crontab (5-field)
+              <input name="cron_expression" placeholder="0 2 * * *" />
+            </label>
+          </div>
+
+          <!-- date args -->
+          <div class="trigger-args" data-for="date" hidden>
+            <label>Run date<input type="datetime-local" name="run_date" /></label>
+          </div>
+
+          <label>Target stream <span class="muted">(optional)</span>
+            <input name="target_stream_id" placeholder="defaults to stream:&lt;job_id&gt;" />
+          </label>
+
+          <label>Event type
+            <input name="event_type" placeholder="schedule.fired" />
+          </label>
+
+          <label>Room <span class="muted">(optional)</span>
+            <input name="room" placeholder="" />
+          </label>
+
+          <label class="checkbox">
+            <input type="checkbox" name="paused" /> Create paused
+          </label>
+
+          <label class="full">Event data <span class="muted">(JSON)</span>
+            <textarea name="event_data" rows="3" placeholder='{ "report": "daily_sales" }'></textarea>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="primary">Create</button>
+          <span class="form-msg" id="create-msg"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Jobs <span class="muted" id="job-count"></span></h2>
+        <button id="refresh" class="ghost">Refresh</button>
+      </div>
+      <table id="jobs-table">
+        <thead>
+          <tr>
+            <th>Job ID</th><th>Trigger</th><th>Next run</th>
+            <th>Stream</th><th>Event type</th><th>State</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="jobs-body">
+          <tr><td colspan="7" class="muted">loading…</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
