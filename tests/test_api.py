@@ -13,14 +13,25 @@ from agent_scheduler.envelope import EventEnvelope
 class FakePublisher:
     def __init__(self):
         self.published: list[tuple[str, EventEnvelope]] = []
+        self.srems: list[tuple[str, str]] = []
+        self.deletes: list[str] = []
         self._counter = 0
 
     async def incr(self, key: str) -> int:
         self._counter += 1
         return self._counter
 
+    async def expire(self, key: str, seconds: int) -> None:
+        pass
+
     async def sadd(self, key: str, member: str) -> None:
         pass
+
+    async def srem(self, key: str, member: str) -> None:
+        self.srems.append((key, member))
+
+    async def delete(self, key: str) -> None:
+        self.deletes.append(key)
 
     async def publish(self, stream: str, env: EventEnvelope) -> str:
         self.published.append((stream, env))
@@ -113,6 +124,22 @@ def test_delete(client):
     client.post("/jobs", json=_interval_body())
     assert client.delete("/jobs/j1").status_code == 204
     assert client.get("/jobs/j1").status_code == 404
+
+
+def test_delete_derived_srems_active(client, monkeypatch):
+    fake = FakePublisher()
+    monkeypatch.setattr(emitter, "_publisher", fake)
+    client.post("/jobs", json=_interval_body(job_id="derived"))
+    assert client.delete("/jobs/derived").status_code == 204
+    assert (emitter.settings.active_streams_key, "derived") in fake.srems
+
+
+def test_delete_explicit_target_does_not_srem(client, monkeypatch):
+    fake = FakePublisher()
+    monkeypatch.setattr(emitter, "_publisher", fake)
+    client.post("/jobs", json=_interval_body(job_id="shared", target_stream_id="room-1"))
+    assert client.delete("/jobs/shared").status_code == 204
+    assert fake.srems == []
 
 
 def test_missing_job_404(client):

@@ -213,6 +213,29 @@ networks:
 4. **Restart** — on container restart the scheduler reconnects, reads `RedisJobStore`, and
    resumes all pending triggers automatically.
 
+### Resource retention
+
+The scheduler is a long-lived *producer* that never "disconnects", so `agent_bus`'s
+client-lifecycle cleanup never reclaims scheduler-created resources. The emitter
+therefore bounds its own footprint:
+
+* **`sid:<cid>` keys** — each fire mints a fresh `cid` and `INCR sid:<cid>`; the
+  key is given a TTL (`SID_TTL_S`, default 3600s, matching agent_bus). agent_bus
+  consumers that continue the `cid` refresh it; otherwise it self-expires.
+* **Streams** — `publish` applies an approximate `MAXLEN ~ N` (`STREAM_MAXLEN`,
+  default 10000; `0` disables). A scheduler stream is a long-lived shared channel,
+  so a cap (not a TTL, which would wipe history between infrequent fires) is the
+  right bound. *Approximate* trimming only evicts whole radix-tree nodes, so
+  `XLEN` hovers near — and can briefly exceed — `N`; a consumer more than ~N
+  behind loses the oldest unprocessed events.
+* **`streams:active`** — `DELETE /jobs/{id}` removes a job's *derived* stream
+  (id == `job_id`, unique) from the active set; explicit/shared `target_stream_id`
+  streams are left untouched. Optionally also deletes the derived stream key
+  (`STREAM_DELETE_ON_JOB_DELETE`, default false).
+* **Fire path** — emit errors are logged at ERROR with `job_id` +
+  `scheduled_run_time` and re-raised (APScheduler records the failure). The
+  `sid` TTL is set before publish, so a partial failure can't orphan a no-TTL key.
+
 ### Persistence & observability notes
 
 * `RedisJobStore` stores **pickled** job state under `agent_scheduler.jobs` /

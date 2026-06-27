@@ -129,11 +129,14 @@ def create_app(
         return job_to_view(sched.get_job(job_id))
 
     @app.delete("/jobs/{job_id}", status_code=204)
-    def delete_job(job_id: str, sched: AsyncIOScheduler = Depends(get_scheduler)):
-        try:
-            sched.remove_job(job_id)
-        except JobLookupError:
-            raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+    async def delete_job(job_id: str, sched: AsyncIOScheduler = Depends(get_scheduler)):
+        job = _job_or_404(sched, job_id)
+        target = (job.kwargs or {}).get("target_stream_id")
+        sched.remove_job(job_id)
+        # Only the derived per-job stream (id == job_id) is unique to this job and
+        # safe to drop from the active set; shared explicit targets are left alone.
+        if target is None:
+            await emitter.deregister_stream(job_id)
         return Response(status_code=204)
 
     # --- lifecycle ----------------------------------------------------------

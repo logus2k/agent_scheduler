@@ -65,6 +65,16 @@ class Settings:
     connect_retries: int = _int("CONNECT_RETRIES", 30)
     connect_retry_delay_s: int = _int("CONNECT_RETRY_DELAY_S", 2)
 
+    # --- Resource retention (bound the keys/streams the emitter creates) ---
+    # TTL (seconds) on the per-fire sid:<cid> key. Matches agent_bus stream_ttl_s
+    # so cross-service behavior is uniform; agent_bus consumers refresh it.
+    sid_ttl_s: int = _int("SID_TTL_S", 3600)
+    # Approximate MAXLEN cap per scheduler stream (XADD MAXLEN ~ N). 0 = unbounded.
+    stream_maxlen: int = _int("STREAM_MAXLEN", 10000)
+    # Also delete a derived per-job stream key when its job is deleted (loses
+    # that stream's history). SREM from the active set happens regardless.
+    stream_delete_on_job_delete: bool = _bool("STREAM_DELETE_ON_JOB_DELETE", False)
+
     # --- Admin API ---
     api_host: str = _str("API_HOST", "0.0.0.0")
     api_port: int = _int("API_PORT", 6816)

@@ -80,38 +80,67 @@ async def emit_scheduled_event(
     stream_id = resolve_stream_id(job_id, target_stream_id)
     stream_key = settings.stream_key(stream_id)
 
-    cid = str(uuid.uuid4())
-    sid = await _publisher.incr(f"sid:{cid}")
-
     # Prefer an explicit value (rare); otherwise the executor-injected one for this fire.
     if scheduled_run_time is None:
         scheduled_run_time = scheduled_run_time_var.get()
 
-    context: dict[str, Any] = {
-        "job_id": job_id,
-        "fired_at": now_iso(),
-    }
-    if trigger_type is not None:
-        context["trigger_type"] = trigger_type
-    if scheduled_run_time is not None:
-        context["scheduled_run_time"] = scheduled_run_time
-    if room is not None:
-        context["room"] = room
+    try:
+        cid = str(uuid.uuid4())
+        sid = await _publisher.incr(f"sid:{cid}")
+        # Bound the per-fire counter key. agent_bus consumers that continue this
+        # cid refresh the TTL via next_sid; otherwise it self-cleans. Set before
+        # publish so a later failure can't leave a no-TTL orphan.
+        await _publisher.expire(f"sid:{cid}", settings.sid_ttl_s)
 
-    env = new_event(
-        stream_id=stream_id,
-        cid=cid,
-        sid=sid,
-        sender=settings.sender_id,
-        event_type=event_type or settings.default_event_type,
-        data=event_data or {},
-        context=context,
-    )
+        context: dict[str, Any] = {
+            "job_id": job_id,
+            "fired_at": now_iso(),
+        }
+        if trigger_type is not None:
+            context["trigger_type"] = trigger_type
+        if scheduled_run_time is not None:
+            context["scheduled_run_time"] = scheduled_run_time
+        if room is not None:
+            context["room"] = room
 
-    # Register the stream so agent_bus discovery/observers/reaper see it.
-    await _publisher.sadd(settings.active_streams_key, stream_id)
-    entry_id = await _publisher.publish(stream_key, env)
-    log.info(
-        "fired job=%s -> %s entry=%s cid=%s", job_id, stream_key, entry_id, cid
-    )
-    return entry_id
+        env = new_event(
+            stream_id=stream_id,
+            cid=cid,
+            sid=sid,
+            sender=settings.sender_id,
+            event_type=event_type or settings.default_event_type,
+            data=event_data or {},
+            context=context,
+        )
+
+        # Register the stream so agent_bus discovery/observers/reaper see it.
+        await _publisher.sadd(settings.active_streams_key, stream_id)
+        entry_id = await _publisher.publish(stream_key, env)
+        log.info(
+            "fired job=%s -> %s entry=%s cid=%s", job_id, stream_key, entry_id, cid
+        )
+        return entry_id
+    except Exception:
+        # Make missed fires unmistakable; recurring jobs self-cover next fire,
+        # but a one-shot date job's failed emit is otherwise silent.
+        log.error(
+            "emit FAILED job=%s scheduled_run_time=%s",
+            job_id,
+            scheduled_run_time,
+            exc_info=True,
+        )
+        raise
+
+
+async def deregister_stream(stream_id: str) -> None:
+    """Drop a derived per-job stream from the active set on job deletion.
+
+    Called only for derived streams (stream id == job_id, unique to one job);
+    explicit/shared target streams are left alone. Optionally deletes the stream
+    key too (STREAM_DELETE_ON_JOB_DELETE). No-op if the publisher isn't connected.
+    """
+    if _publisher is None:
+        return
+    await _publisher.srem(settings.active_streams_key, stream_id)
+    if settings.stream_delete_on_job_delete:
+        await _publisher.delete(settings.stream_key(stream_id))

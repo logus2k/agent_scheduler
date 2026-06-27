@@ -8,19 +8,26 @@ from agent_scheduler.envelope import EventEnvelope
 
 
 class FakePublisher:
-    def __init__(self):
+    def __init__(self, fail_publish: bool = False):
         self.published: list[tuple[str, EventEnvelope]] = []
         self.sadds: list[tuple[str, str]] = []
+        self.expires: list[tuple[str, int]] = []
         self._counter = 0
+        self._fail_publish = fail_publish
 
     async def incr(self, key: str) -> int:
         self._counter += 1
         return self._counter
 
+    async def expire(self, key: str, seconds: int) -> None:
+        self.expires.append((key, seconds))
+
     async def sadd(self, key: str, member: str) -> None:
         self.sadds.append((key, member))
 
     async def publish(self, stream: str, env: EventEnvelope) -> str:
+        if self._fail_publish:
+            raise RuntimeError("simulated glide failure")
         self.published.append((stream, env))
         return "1-0"
 
@@ -55,6 +62,8 @@ async def test_emit_derived_stream(fake_publisher):
     assert "fired_at" in env.payload.context
     # Stream registered for discovery.
     assert (settings.active_streams_key, "nightly-report") in fake_publisher.sadds
+    # Fix 1: the per-fire sid key is TTL'd.
+    assert fake_publisher.expires == [(f"sid:{env.header.cid}", settings.sid_ttl_s)]
 
 
 async def test_emit_explicit_target_and_room(fake_publisher):
@@ -74,3 +83,26 @@ async def test_emit_without_publisher_raises(monkeypatch):
     monkeypatch.setattr(emitter, "_publisher", None)
     with pytest.raises(RuntimeError):
         await emitter.emit_scheduled_event(job_id="j", event_data={})
+
+
+async def test_emit_publish_failure_propagates(monkeypatch):
+    # Fix 4: a publish failure propagates (APScheduler logs it); nothing emitted,
+    # and the sid key still got its TTL (set before publish).
+    fake = FakePublisher(fail_publish=True)
+    monkeypatch.setattr(emitter, "_publisher", fake)
+    with pytest.raises(RuntimeError):
+        await emitter.emit_scheduled_event(job_id="j", event_data={})
+    assert fake.published == []
+    assert len(fake.expires) == 1
+
+
+async def test_deregister_stream(monkeypatch):
+    fake = FakePublisher()
+
+    async def srem(key, member):
+        fake.sadds.append(("SREM", key, member))
+
+    fake.srem = srem
+    monkeypatch.setattr(emitter, "_publisher", fake)
+    await emitter.deregister_stream("job-x")
+    assert ("SREM", settings.active_streams_key, "job-x") in fake.sadds

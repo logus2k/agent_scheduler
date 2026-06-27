@@ -21,6 +21,7 @@ from glide import (
     GlideClientConfiguration,
     NodeAddress,
     StreamAddOptions,
+    TrimByMaxLen,
 )
 
 from .config import Settings, settings as default_settings
@@ -85,14 +86,33 @@ class Publisher:
             return False
 
     async def publish(self, stream: str, env: EventEnvelope) -> str:
-        """XADD an envelope; returns the generated entry id."""
+        """XADD an envelope; returns the generated entry id.
+
+        A scheduler stream is a long-lived shared channel, so it is capped with
+        an approximate ``MAXLEN ~ N`` (radix-tree-efficient) rather than a TTL.
+        Note: a consumer that falls more than ~N entries behind loses the oldest
+        unprocessed events — set ``STREAM_MAXLEN`` comfortably above worst-case
+        consumer lag, or ``0`` to disable trimming (full retention).
+        """
+        trim = None
+        if self._settings.stream_maxlen > 0:
+            trim = TrimByMaxLen(exact=False, threshold=self._settings.stream_maxlen)
         entry_id = await self._client.xadd(
-            stream, env.to_fields(), StreamAddOptions(make_stream=True)
+            stream, env.to_fields(), StreamAddOptions(make_stream=True, trim=trim)
         )
         return _s(entry_id)
 
     async def incr(self, key: str) -> int:
         return await self._client.incr(key)
 
+    async def expire(self, key: str, seconds: int) -> None:
+        await self._client.expire(key, seconds)
+
     async def sadd(self, key: str, member: str) -> None:
         await self._client.sadd(key, [member])
+
+    async def srem(self, key: str, member: str) -> None:
+        await self._client.srem(key, [member])
+
+    async def delete(self, key: str) -> None:
+        await self._client.delete([key])
