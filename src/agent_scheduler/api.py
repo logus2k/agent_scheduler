@@ -183,16 +183,27 @@ def create_app(
             raise HTTPException(status_code=503, detail=body)
         return body
 
+    # Markdown docs (the Help dialog fetches /docs/use_cases.md). Mounted BEFORE
+    # the root UI mount below, which is greedy (matches everything).
+    if os.path.isdir(settings.docs_dir):
+        app.mount("/docs", StaticFiles(directory=settings.docs_dir), name="docs")
+        log.info("docs mounted at /docs (from %s)", settings.docs_dir)
+    else:
+        log.warning("docs dir %r not found; /docs disabled", settings.docs_dir)
+
     # --- admin web UI (static, same-origin so no CORS) ---------------------
+    # Served at the app ROOT so it lives at /scheduler behind the proxy (no extra
+    # path segment). Must be the LAST mount: "/" matches every unrouted path, but
+    # the API routes and the /docs mount above are matched first (order matters).
     if os.path.isdir(settings.frontend_dir):
         app.mount(
-            "/admin",
+            "/",
             StaticFiles(directory=settings.frontend_dir, html=True),
-            name="admin",
+            name="ui",
         )
-        log.info("admin UI mounted at /admin (from %s)", settings.frontend_dir)
+        log.info("admin UI mounted at / (from %s)", settings.frontend_dir)
     else:
-        log.warning("frontend dir %r not found; /admin disabled", settings.frontend_dir)
+        log.warning("frontend dir %r not found; UI disabled", settings.frontend_dir)
 
     return app
 

@@ -6,7 +6,7 @@
   <title>Agent Scheduler — Admin</title>
   <script>
     // Set theme before first paint to avoid a flash of the wrong theme.
-    document.documentElement.setAttribute("data-theme", localStorage.getItem("theme") || "dark");
+    document.documentElement.setAttribute("data-theme", localStorage.getItem("theme") || "light");
   </script>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -18,8 +18,11 @@
         <span class="dot" id="health-dot"></span>
         <span id="health-text">checking…</span>
       </div>
+      <button class="ghost theme-toggle" id="help-btn" title="Usage guide & examples">
+        ❓ Help
+      </button>
       <button class="ghost theme-toggle" id="theme-toggle" title="Toggle light/dark">
-        <span id="theme-icon">☀️</span><span id="theme-label">Light</span>
+        <span id="theme-icon">🌙</span><span id="theme-label">Dark</span>
       </button>
     </div>
   </header>
@@ -29,12 +32,20 @@
       <h2>Create job</h2>
       <form id="create-form" autocomplete="off">
         <div class="grid">
-          <label>Job ID
+          <label>
+            <span class="cap">Job ID
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="Unique name for this job. When no Target stream is set, events are published to stream:&lt;job_id&gt;, so the id doubles as the stream name. Allowed characters: letters, digits, and . _ : - . Chosen at creation and cannot be changed (delete + recreate to rename).">?</span>
+            </span>
             <input name="job_id" required pattern="[A-Za-z0-9._:\-]+"
                    placeholder="nightly-report" />
           </label>
 
-          <label>Trigger
+          <label>
+            <span class="cap">Trigger
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="How the job fires. interval = repeatedly every N time units; cron = on a crontab schedule (e.g. daily at 02:00); date = once at a specific moment, then it's done. Pick one; the fields below change to match.">?</span>
+            </span>
             <select name="trigger_type" id="trigger-type">
               <option value="interval">interval</option>
               <option value="cron">cron</option>
@@ -44,41 +55,81 @@
 
           <!-- interval args -->
           <div class="trigger-args" data-for="interval">
-            <label>Seconds<input type="number" name="seconds" min="0" placeholder="0" /></label>
-            <label>Minutes<input type="number" name="minutes" min="0" placeholder="0" /></label>
-            <label>Hours<input type="number" name="hours" min="0" placeholder="0" /></label>
-            <label>Days<input type="number" name="days" min="0" placeholder="0" /></label>
+            <label><span class="cap">Seconds
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="Interval length. The four interval fields add up (e.g. 1 hour + 30 minutes). At least one must be greater than 0. The job fires repeatedly at this spacing, starting one interval from now.">?</span>
+            </span><input type="number" name="seconds" min="0" placeholder="0" /></label>
+            <label><span class="cap">Minutes
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="Minutes component of the repeat interval. Combined with seconds/hours/days. At least one interval field must be greater than 0.">?</span>
+            </span><input type="number" name="minutes" min="0" placeholder="0" /></label>
+            <label><span class="cap">Hours
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="Hours component of the repeat interval. Combined with the other interval fields. At least one interval field must be greater than 0.">?</span>
+            </span><input type="number" name="hours" min="0" placeholder="0" /></label>
+            <label><span class="cap">Days
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="Days component of the repeat interval. Combined with the other interval fields. At least one interval field must be greater than 0.">?</span>
+            </span><input type="number" name="days" min="0" placeholder="0" /></label>
           </div>
 
           <!-- cron args -->
           <div class="trigger-args" data-for="cron" hidden>
-            <label>Crontab (5-field)
+            <label>
+              <span class="cap">Crontab (5-field)
+                <span class="help" tabindex="0" role="img" aria-label="Help"
+                  data-tip="Standard crontab: minute hour day-of-month month day-of-week. Examples — '0 2 * * *' daily at 02:00; '*/15 * * * *' every 15 minutes; '0 9 * * 1' Mondays at 09:00. Runs in the scheduler's timezone.">?</span>
+              </span>
               <input name="cron_expression" placeholder="0 2 * * *" />
             </label>
           </div>
 
           <!-- date args -->
           <div class="trigger-args" data-for="date" hidden>
-            <label>Run date<input type="datetime-local" name="run_date" /></label>
+            <label>
+              <span class="cap">Run date
+                <span class="help" tabindex="0" role="img" aria-label="Help"
+                  data-tip="Exact moment to fire, one time only. Interpreted in the scheduler's timezone. After it fires the job is finished (one-shot). Use for a single future event rather than a recurring schedule.">?</span>
+              </span>
+              <input type="datetime-local" name="run_date" />
+            </label>
           </div>
 
-          <label>Target stream <span class="muted">(optional)</span>
+          <label>
+            <span class="cap">Target stream <span class="muted">(optional)</span>
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="Where events are published: stream:&lt;this value&gt;. Leave empty to default to stream:&lt;job_id&gt;. Set it to point several jobs at one shared stream, or a 'room' that multiple consumers read. Known at creation time so consumers can subscribe before the first fire.">?</span>
+            </span>
             <input name="target_stream_id" placeholder="defaults to stream:&lt;job_id&gt;" />
           </label>
 
-          <label>Event type
+          <label>
+            <span class="cap">Event type
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="The header.event_type stamped on every emitted event. Default 'schedule.fired'. Set it to a type an existing consumer already handles (e.g. 'request') to drive a workflow directly with no adapter. Consumers identify scheduler events by sender = agent_scheduler, not by this field.">?</span>
+            </span>
             <input name="event_type" placeholder="schedule.fired" />
           </label>
 
-          <label>Room <span class="muted">(optional)</span>
+          <label>
+            <span class="cap">Room <span class="muted">(optional)</span>
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="Optional hint copied into payload.context.room. Intended for a future room-aware gateway to fan out to a Socket.IO room; ignored otherwise. It does NOT change where the event is published — use Target stream for routing.">?</span>
+            </span>
             <input name="room" placeholder="" />
           </label>
 
           <label class="checkbox">
             <input type="checkbox" name="paused" /> Create paused
+            <span class="help" tabindex="0" role="img" aria-label="Help"
+              data-tip="Create the job without scheduling its next run, so it won't fire until you press Resume. Useful to stage a job before going live, or to make a job manual-only (trigger it on demand with Run now).">?</span>
           </label>
 
-          <label class="full">Event data <span class="muted">(JSON)</span>
+          <label class="full">
+            <span class="cap">Event data <span class="muted">(JSON)</span>
+              <span class="help" tabindex="0" role="img" aria-label="Help"
+                data-tip="Arbitrary JSON object copied verbatim into payload.data of every emitted event — this is the payload your consumer reads and acts on. Must be a valid JSON object, e.g. { &quot;report&quot;: &quot;daily_sales&quot; }. Leave empty for {}.">?</span>
+            </span>
             <textarea name="event_data" rows="3" placeholder='{ "report": "daily_sales" }'></textarea>
           </label>
         </div>
@@ -110,6 +161,14 @@
   </main>
 
   <div id="toast" class="toast" hidden></div>
+
+  <div id="help-panel" class="float-panel" role="dialog" aria-label="Usage guide" hidden>
+    <div class="float-head" id="help-head">
+      <h2>Usage guide &amp; examples</h2>
+      <button id="help-close" class="ghost sm" title="Close (Esc)">✕</button>
+    </div>
+    <div id="help-body" class="markdown">loading…</div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>

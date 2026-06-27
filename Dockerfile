@@ -23,5 +23,8 @@ ENV PYTHONPATH=/app/src
 # Static admin UI (served by FastAPI at /admin; FRONTEND_DIR defaults to "frontend").
 COPY frontend/ ./frontend/
 
+# Markdown docs (served at /docs; the Help dialog renders use_cases.md).
+COPY documents/ ./documents/
+
 # Single-process entrypoint: uvicorn serving the admin API, which owns the scheduler.
 CMD ["python", "-m", "agent_scheduler.app"]

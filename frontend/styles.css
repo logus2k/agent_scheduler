@@ -76,6 +76,68 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
 label.full { grid-column: 1 / -1; }
 label.checkbox { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
 
+.cap { display: inline-flex; align-items: center; gap: 2px; }
+
+/* Inline help badge + tooltip (hover and keyboard focus). */
+.help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 4px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+  position: relative;
+  flex: none;
+}
+.help:hover, .help:focus { border-color: var(--accent); color: var(--accent); outline: none; }
+
+.help::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 260px;
+  max-width: 70vw;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 6px 24px var(--shadow);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .12s ease;
+  z-index: 30;
+  pointer-events: none;
+}
+.help::before { /* arrow */
+  content: "";
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: var(--border);
+  opacity: 0;
+  visibility: hidden;
+  z-index: 31;
+}
+.help:hover::after, .help:focus::after,
+.help:hover::before, .help:focus::before { opacity: 1; visibility: visible; }
+
 input, select, textarea {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -152,3 +214,76 @@ tr:last-child td { border-bottom: none; }
 }
 .toast.ok { border-color: var(--ok); }
 .toast.bad { border-color: var(--bad); }
+
+/* Floating, draggable, resizable help panel (non-modal). */
+.float-panel {
+  position: fixed;
+  top: 76px;
+  right: 24px;
+  width: 520px;
+  height: 70vh;
+  min-width: 320px;
+  min-height: 220px;
+  max-width: 96vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 48px var(--shadow);
+  z-index: 50;
+  overflow: hidden;        /* required for the resize handle */
+  resize: both;            /* drag the bottom-right corner to resize */
+}
+.float-panel[hidden] { display: none; }
+.float-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+  cursor: move;
+  user-select: none;
+  touch-action: none;      /* let pointer-drag work on touch */
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.float-head h2 { margin: 0; font-size: 15px; }
+#help-body { flex: 1; overflow-y: auto; padding: 8px 18px 18px; }
+
+/* Rendered markdown */
+.markdown { font-size: 14px; line-height: 1.6; }
+.markdown h1 { font-size: 20px; margin: 20px 0 10px; }
+.markdown h2 { font-size: 17px; margin: 22px 0 10px; padding-top: 14px; border-top: 1px solid var(--border); }
+.markdown h3 { font-size: 15px; margin: 16px 0 8px; }
+.markdown p { margin: 8px 0; }
+.markdown ul, .markdown ol { margin: 8px 0; padding-left: 22px; }
+.markdown li { margin: 3px 0; }
+.markdown a { color: var(--accent); }
+.markdown hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+.markdown code {
+  background: var(--panel-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.markdown .md-pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.markdown .md-pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; }
+.markdown blockquote {
+  margin: 10px 0;
+  padding: 6px 14px;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+.markdown table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
+.markdown th { background: var(--panel-2); }

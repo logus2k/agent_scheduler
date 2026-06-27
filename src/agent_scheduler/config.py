@@ -71,6 +71,8 @@ class Settings:
 
     # --- Admin Web UI (static, served from this same process at /admin) ---
     frontend_dir: str = _str("FRONTEND_DIR", "frontend")
+    # Markdown docs served at /docs (the Help dialog renders use_cases.md).
+    docs_dir: str = _str("DOCS_DIR", "documents")
 
     # --- Logging ---
     log_level: str = _str("LOG_LEVEL", "INFO")
