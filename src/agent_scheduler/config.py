@@ -46,9 +46,15 @@ class Settings:
     stream_prefix: str = _str("STREAM_PREFIX", "stream:")
     active_streams_key: str = _str("ACTIVE_STREAMS_KEY", "streams:active")
 
-    # --- RedisJobStore keys (namespaced; do not collide with agent_bus keys) ---
-    jobs_key: str = _str("JOBS_KEY", "agent_scheduler.jobs")
-    run_times_key: str = _str("RUN_TIMES_KEY", "agent_scheduler.run_times")
+    # --- Job registry + Taskiq keys (namespaced; do not collide with agent_bus) ---
+    # Persistent hash of job definitions — the admin API's source of truth; the
+    # Taskiq schedule source is derived from it.
+    registry_key: str = _str("REGISTRY_KEY", "agent_scheduler.registry")
+    # Taskiq broker stream/queue name (its own queue, separate from agent-bus streams).
+    taskiq_queue: str = _str("TASKIQ_QUEUE", "agent_scheduler.taskiq")
+    # Per-(job,minute) idempotency key TTL — guards Taskiq's at-least-once / double-send
+    # (#296) so a duplicate within a minute can't double-deliver. Seconds.
+    dedupe_ttl_s: int = _int("DEDUPE_TTL_S", 120)
 
     # --- Emission identity ---
     sender_id: str = _str("SENDER_ID", "agent_scheduler")
@@ -90,6 +96,10 @@ class Settings:
     def stream_key(self, stream_id: str) -> str:
         """The dedicated stream key for a target: ``stream:<stream_id>``."""
         return f"{self.stream_prefix}{stream_id}"
+
+    def redis_url(self) -> str:
+        """redis-py URL for the Taskiq broker + job registry (same valkey-bus)."""
+        return f"redis://{self.valkey_host}:{self.valkey_port}"
 
 
 settings = Settings()

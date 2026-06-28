@@ -3,9 +3,11 @@
 
 fastapi==0.121.1         # admin API
 uvicorn==0.49.0          # ASGI server (matches agent_bus)
-APScheduler==3.11.0      # 3.x line: AsyncIOScheduler + RedisJobStore (NOT 4.x)
-redis==5.2.1             # RedisJobStore backend (redis-py; talks to valkey-bus)
-valkey-glide==2.4.2      # event emission — pinned to match agent_bus wire client
+taskiq-redis==1.2.3      # broker + schedule source (Redis/valkey); pulls taskiq core
+taskiq==0.12.4           # scheduler engine: per-SECOND wall-clock re-anchored loop
+redis>=8,<9              # redis-py: taskiq-redis backend (needs >=8) + our registry/dedupe
+croniter==3.0.3          # compute next_run_time for the admin view
+valkey-glide==2.4.2      # bus event emission — pinned to match agent_bus wire client
 pydantic==2.13.4         # models + vendored EventEnvelope (match agent_bus)
 python-dotenv==1.2.2     # .env loading for local/dev
 
