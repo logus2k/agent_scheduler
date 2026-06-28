@@ -1,5 +1,9 @@
 # Implementation Plan: Scheduler Agent
 
+> **Historical (phase 1–3 build plan).** The scheduling engine was later migrated
+> from APScheduler to **embedded Taskiq** — see [taskiq_migration_plan.md](taskiq_migration_plan.md).
+> Everything below describes the original build; the API/UI/SDK it produced are unchanged.
+
 Goal of phase 1: a **running container** that exposes the FastAPI admin API and emits
 valid `EventEnvelope` messages onto `valkey-bus` on schedule. Phases 2–3 (Client SDK
 docs, Admin Web UI) build on the resulting API.

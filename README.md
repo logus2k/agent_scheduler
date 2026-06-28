@@ -6,9 +6,9 @@ a standard `EventEnvelope` onto the shared `valkey-bus` so any other agent can
 react. It is a *pure trigger actor*: it does no business logic itself — it just
 puts a well-formed event on a stream at the right moment.
 
-It bundles a **FastAPI** admin API, an **APScheduler** engine with a Valkey-backed
-job store (restart-resilient), and a built-in **web admin UI** — all in one
-container.
+It bundles a **FastAPI** admin API, an **embedded Taskiq** engine (broker + worker
++ scheduler) backed by a Valkey-persisted job registry (restart-resilient), and a
+built-in **web admin UI** — all in one container.
 
 > The product name is **Scheduler Agent**. The code package, image, and container
 > use the identifier `agent_scheduler` / `agent-scheduler-app`.
@@ -24,45 +24,56 @@ bus events, without baking scheduling into every agent.
 
 ## Features
 
-- **Three trigger types** — `interval`, `cron` (5-field crontab), `date` (one-shot).
-- **Restart-proof** — jobs persist in Valkey (`RedisJobStore`); on restart the
-  scheduler rehydrates and resumes them.
+- **Three trigger types** — `interval`, `cron` (5-field crontab, with per-job
+  IANA timezone), `date` (one-shot).
+- **Restart-proof** — job definitions persist in Valkey (a registry hash); on
+  restart the schedule is rebuilt from it.
+- **Drift-resistant** — the Taskiq scheduler runs a **per-second, wall-clock
+  re-anchored** loop (re-reads `datetime.now()` every tick), so a cron fires
+  within ~1 s of its minute even on hosts whose monotonic clock drifts. (This
+  replaced APScheduler, whose single long monotonic sleep silently dropped a
+  fire on this host's WSL2 clock bug — see `documents/taskiq_migration_plan.md`.)
 - **Bus-native output** — emits the exact `EventEnvelope` contract used by
-  `agent_bus`, byte-for-byte, including a per-fire `scheduled_run_time`.
+  `agent_bus`, byte-for-byte.
 - **Admin REST API** — full CRUD plus pause / resume / run-now / health.
+- **Exactly-once per minute** — a Redis `SET NX` guard so Taskiq's at-least-once
+  delivery can't double-emit within a minute.
 - **Client SDKs** — Python and JavaScript (ES6).
 - **Built-in web UI** — create/manage jobs, light/dark theme, per-field help, and
   a floating usage guide — served from the same container.
-- **Defined misfire policy** — explicit grace time + coalescing for downtime.
 
 ---
 
 ## Architecture at a glance
 
 ```
-                ┌──────────────── agent-scheduler-app (one container) ───────────────┐
- HTTP (CRUD) ──▶│  FastAPI  ─▶  AsyncIOScheduler ──(on fire)─▶  emitter.emit()        │
-   + Web UI     │     │              │                               │                 │
-                │     │              ▼                               ▼                 │
-                │     │        RedisJobStore                  glide publisher           │
-                └─────┼──────────────┼─────────────────────────────┼──────────────────┘
-                      ▼              ▼                             ▼
-                  (this API)  valkey-bus: agent_scheduler.jobs   valkey-bus: stream:<target>
-                              (pickled job state, persistence)   (EventEnvelope → consumers)
+        ┌──────────────────── agent-scheduler-app (one container) ─────────────────────┐
+HTTP ──▶│ FastAPI ─▶ job registry ◀── Taskiq scheduler ──(due)──▶ broker ──▶ worker     │
++ UI    │    │         (source of                │  per-second      (Redis    │  runs    │
+        │    │          truth)                    │  wall-clock      stream)  ▼ emit_trigger
+        │    │                                    │  loop)                 emitter.emit()  │
+        └────┼────────────────┼───────────────────┼──────────────────────────┼───────────┘
+             ▼                ▼                    ▼                          ▼
+         (this API)   valkey-bus:            valkey-bus:               valkey-bus:
+                      agent_scheduler.registry  agent_scheduler.taskiq  stream:<target>
+                      (job definitions)         (Taskiq broker queue)   (EventEnvelope → consumers)
 ```
 
-- **Single process** by design: FastAPI and `AsyncIOScheduler` share one event
-  loop, so API changes take effect immediately and exactly one scheduler ever
-  fires a job (no duplicate emissions). The job store is for *persistence*, not
-  coordination.
-- **Two Valkey clients, on purpose:** `redis-py` drives `RedisJobStore` (job
-  persistence); `valkey-glide` drives event emission (same wire client as the
-  rest of the bus). Separate concerns, separate keyspaces.
+- **Single process** by design: FastAPI plus the **embedded** Taskiq worker +
+  scheduler (`taskiq.api.run_receiver_task` / `run_scheduler_task`) share one
+  event loop. Exactly one scheduler instance fires (no duplicate emissions).
+- **Registry is the source of truth:** the admin API reads/writes a Redis hash;
+  the Taskiq schedule source *derives* schedules from it (picked up on the
+  scheduler's ~60 s refresh; `run-now` is immediate).
+- **Two Valkey clients, on purpose:** `redis-py` drives the Taskiq broker + the
+  job registry/dedupe; `valkey-glide` drives event emission (same wire client as
+  the rest of the bus). Separate concerns, separate keyspaces.
 - **Vendored contract:** `src/agent_scheduler/envelope.py` is a verbatim copy of
   `agent_bus`'s envelope so emitted events are indistinguishable from any other
   actor's.
 
-Full detail: [documents/technical_architecture.md](documents/technical_architecture.md).
+Full detail: [documents/technical_architecture.md](documents/technical_architecture.md)
+and the migration: [documents/taskiq_migration_plan.md](documents/taskiq_migration_plan.md).
 
 ---
 
@@ -76,7 +87,7 @@ first.
 cp .env.example .env          # safe defaults; VALKEY_HOST is overridden in compose
 docker compose up -d --build
 curl http://127.0.0.1:6816/health
-# {"status":"ok","valkey":"up","jobstore":"up","jobs":0}
+# {"status":"ok","valkey":"up","registry":"up","jobs":0}
 ```
 
 Create a job and watch it fire:
@@ -119,8 +130,8 @@ Base: `http://agent-scheduler-app:6816` (internal) — OpenAPI at `/openapi.json
 | `DELETE` | `/jobs/{job_id}` | Delete a job |
 | `POST` | `/jobs/{job_id}/pause` | Pause |
 | `POST` | `/jobs/{job_id}/resume` | Resume |
-| `POST` | `/jobs/{job_id}/run` | Emit once now (off-schedule) |
-| `GET` | `/health` | Liveness + Valkey/job-store reachability |
+| `POST` | `/jobs/{job_id}/run` | Emit once now (off-schedule, un-deduped) |
+| `GET` | `/health` | Liveness + Valkey/registry reachability |
 
 Full schema, models, and error codes: [documents/interface_specification.md](documents/interface_specification.md).
 
@@ -136,14 +147,13 @@ On each fire, one `EventEnvelope` is published to `stream:<resolved_target>`
               "event_type": "schedule.fired" },
   "payload": { "data": { "ping": 1 },
                "context": { "job_id": "demo", "trigger_type": "interval",
-                            "fired_at": "…", "scheduled_run_time": "…" } },
+                            "fired_at": "…" } },
   "metadata": { "version": "1.0", "trace_parent": null }
 }
 ```
 
-**Consumer tips:** dedup on `context.job_id` + `context.scheduled_run_time`
-(`cid` is fresh per fire); identify scheduled events by `header.sender`, not by
-`event_type`.
+**Consumer tips:** dedup on `context.job_id` (`cid` is fresh per fire); identify
+scheduled events by `header.sender`, not by `event_type`.
 
 ---
 
@@ -178,11 +188,11 @@ All via environment (safe defaults in `src/agent_scheduler/config.py`; see
 | `VALKEY_HOST` / `VALKEY_PORT` | `127.0.0.1` / `6379` | Shared `valkey-bus` connection |
 | `STREAM_PREFIX` | `stream:` | Stream key prefix (must match agent_bus) |
 | `ACTIVE_STREAMS_KEY` | `streams:active` | Discovery set the publisher registers into |
-| `JOBS_KEY` / `RUN_TIMES_KEY` | `agent_scheduler.jobs` / `.run_times` | RedisJobStore keys |
+| `REGISTRY_KEY` | `agent_scheduler.registry` | Redis hash of job definitions (source of truth) |
+| `TASKIQ_QUEUE` | `agent_scheduler.taskiq` | Taskiq broker queue (its own stream) |
+| `DEDUPE_TTL_S` | `120` | TTL of the per-(job,minute) idempotency guard |
 | `SENDER_ID` | `agent_scheduler` | `header.sender` on emitted events |
 | `DEFAULT_EVENT_TYPE` | `schedule.fired` | Default `event_type` |
-| `MISFIRE_GRACE_TIME` | `30` | Seconds late before a fire is skipped |
-| `COALESCE` | `true` | Collapse missed fires into one catch-up |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `6816` | Admin API bind |
 | `FRONTEND_DIR` / `DOCS_DIR` | `frontend` / `documents` | Static UI + served docs |
 | `LOG_LEVEL` | `INFO` | Logging |
@@ -194,11 +204,11 @@ All via environment (safe defaults in `src/agent_scheduler/config.py`; see
 ```
 agent_scheduler/
   src/agent_scheduler/   # config, envelope (vendored), bus_client, emitter,
-                         # executor, models, scheduler, api, app
+                         # models, registry, tasks (Taskiq), api, app
   frontend/              # vanilla ES6 admin UI (served at /)
   sdk/python | sdk/javascript
   documents/             # the docs linked below
-  tests/                 # pytest (Valkey-free)
+  tests/                 # pytest (Valkey-free: unit + monkeypatched API)
   Dockerfile · docker-compose.yml · requirements.txt · .env.example
 ```
 
@@ -207,7 +217,7 @@ agent_scheduler/
 ```bash
 python -m venv .venv_agent_scheduler && . .venv_agent_scheduler/bin/activate
 pip install -r requirements.txt
-pytest -q                       # 28 tests, no Valkey needed (MemoryJobStore + fakes)
+pytest -q                       # unit + API tests, no Valkey needed (fakes)
 python -m agent_scheduler.app   # run locally (needs a reachable Valkey)
 ```
 
@@ -215,10 +225,11 @@ python -m agent_scheduler.app   # run locally (needs a reachable Valkey)
 
 | Doc | What's in it |
 | --- | --- |
-| [technical_architecture.md](documents/technical_architecture.md) | Design, process model, data flow, misfire policy |
-| [interface_specification.md](documents/interface_specification.md) | REST API, models, lifespan, trigger factory |
+| [taskiq_migration_plan.md](documents/taskiq_migration_plan.md) | **Why/how APScheduler → Taskiq** (the current engine) |
+| [technical_architecture.md](documents/technical_architecture.md) | Design, process model, data flow |
+| [interface_specification.md](documents/interface_specification.md) | REST API, models, lifespan |
 | [client_sdk.md](documents/client_sdk.md) | Python + JS SDK usage |
 | [admin_ui.md](documents/admin_ui.md) | Web UI, auth, how it's served |
-| [use_cases.md](documents/use_cases.md) | Six worked examples (UI walkthroughs) |
-| [implementation_plan.md](documents/implementation_plan.md) | Build plan & decisions |
+| [use_cases.md](documents/use_cases.md) | Worked examples (UI walkthroughs) |
+| [implementation_plan.md](documents/implementation_plan.md) | Original build plan (historical) |
 </content>

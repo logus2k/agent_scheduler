@@ -1,10 +1,21 @@
 # Technical Architecture: Scheduler Agent (Reactive Trigger Service)
 
+> **⚠️ ENGINE SUPERSEDED (2026-06-28).** The scheduling engine described below as
+> **APScheduler + RedisJobStore** has been replaced by **embedded Taskiq** (broker +
+> worker + scheduler) backed by a Redis **job-registry hash**. Reason: APScheduler's
+> single long monotonic sleep silently dropped a fire on this host's WSL2 clock bug
+> (`CLOCK_MONOTONIC` ~5% slow); Taskiq's **per-second, wall-clock re-anchored** loop
+> fixes it. The **process model, single-container design, bus `EventEnvelope`
+> contract, and admin API surface are unchanged** — so most of this document still
+> holds; mentally substitute "AsyncIOScheduler → Taskiq scheduler", "RedisJobStore →
+> registry hash". The authoritative current design is
+> **[taskiq_migration_plan.md](taskiq_migration_plan.md)**.
+
 The `agent_scheduler` is a **single-process, containerized microservice** that owns
-time-based execution triggers for the `logus2k` ecosystem. It runs **FastAPI** and
-**APScheduler** in the *same* process, backed by **Valkey** for restart-resilient job
-persistence, and emits standard `EventEnvelope` messages onto the existing
-`valkey-bus` so any consumer can react to a scheduled event.
+time-based execution triggers for the `logus2k` ecosystem. It runs **FastAPI** and an
+**embedded Taskiq** scheduler in the *same* process, backed by **Valkey** for
+restart-resilient job persistence, and emits standard `EventEnvelope` messages onto the
+existing `valkey-bus` so any consumer can react to a scheduled event.
 
 It is a **pure trigger actor**: it contains no business logic. Its entire job is
 "emit a well-formed `EventEnvelope` onto a stream at the right moment."

@@ -1,8 +1,15 @@
 # Interface Specification: Scheduler Agent API
 
-RESTful interface for the **single-process** `agent_scheduler` (FastAPI + APScheduler).
-All mutations act on the live in-process `AsyncIOScheduler` and are persisted to the
-Valkey-backed `RedisJobStore` in the same call — there is no second process to sync with.
+> **Note (2026-06-28):** the engine is now **embedded Taskiq**, not APScheduler. The
+> **REST contract below is unchanged** (same paths, models, and status codes). Only
+> the internals differ: mutations act on a Valkey **job-registry hash** (the source of
+> truth) from which the Taskiq scheduler derives schedules. A newly created/updated job
+> is picked up on the scheduler's next refresh (~60 s); `run-now` is immediate. See
+> [taskiq_migration_plan.md](taskiq_migration_plan.md).
+
+RESTful interface for the **single-process** `agent_scheduler` (FastAPI + embedded
+Taskiq). All mutations act on the Valkey-backed **job registry** in the same call —
+there is no second process to sync with.
 
 Base URL (internal): `http://agent-scheduler-app:6816`
 
@@ -90,7 +97,7 @@ recompute it.
 `GET /health` response:
 
 ```jsonc
-{ "status": "ok", "valkey": "up", "jobstore": "up", "jobs": 7 }
+{ "status": "ok", "valkey": "up", "registry": "up", "jobs": 7 }
 ```
 
 ---
