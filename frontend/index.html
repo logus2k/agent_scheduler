@@ -12,7 +12,7 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Scheduler Agent <span class="muted">Admin</span></h1>
+    <h1>Scheduler Agent</h1>
     <div class="topbar-right">
       <div class="health" id="health" title="Service health">
         <span class="dot" id="health-dot"></span>
@@ -29,22 +29,22 @@
 
   <main>
     <section class="panel">
-      <h2>Create job</h2>
+      <h2 id="form-title">Create job</h2>
       <form id="create-form" autocomplete="off">
         <div class="grid">
           <label>
             <span class="cap">Job ID
               <span class="help" tabindex="0" role="img" aria-label="Help"
-                data-tip="Unique name for this job. When no Target stream is set, events are published to stream:&lt;job_id&gt;, so the id doubles as the stream name. Allowed characters: letters, digits, and . _ : - . Chosen at creation and cannot be changed (delete + recreate to rename).">?</span>
+                data-tip="Unique name for this job — e.g. 'morning-news'. When no Target stream is set, events are published to stream:&lt;job_id&gt;, so the id doubles as the stream name. Allowed characters: letters, digits, and . _ : - . Chosen at creation and cannot be changed (delete + recreate to rename).">?</span>
             </span>
             <input name="job_id" required pattern="[A-Za-z0-9._:\-]+"
-                   placeholder="nightly-report" />
+                   placeholder="morning-news" />
           </label>
 
           <label>
             <span class="cap">Trigger
               <span class="help" tabindex="0" role="img" aria-label="Help"
-                data-tip="How the job fires. interval = repeatedly every N time units; cron = on a crontab schedule (e.g. daily at 02:00); date = once at a specific moment, then it's done. Pick one; the fields below change to match.">?</span>
+                data-tip="How the job fires. interval = repeatedly every N time units; cron = on a crontab schedule (e.g. daily at 07:00); date = once at a specific moment, then it's done. Pick one; the fields below change to match.">?</span>
             </span>
             <select name="trigger_type" id="trigger-type">
               <option value="interval">interval</option>
@@ -78,9 +78,27 @@
             <label>
               <span class="cap">Crontab (5-field)
                 <span class="help" tabindex="0" role="img" aria-label="Help"
-                  data-tip="Standard crontab: minute hour day-of-month month day-of-week. Examples — '0 2 * * *' daily at 02:00; '*/15 * * * *' every 15 minutes; '0 9 * * 1' Mondays at 09:00. Runs in the scheduler's timezone.">?</span>
+                  data-tip="Standard crontab: minute hour day-of-month month day-of-week. Examples — '0 7 * * *' daily at 07:00; '*/15 * * * *' every 15 minutes; '0 9 * * 1' Mondays at 09:00. Interpreted in the Timezone field below (UTC if left blank).">?</span>
               </span>
-              <input name="cron_expression" placeholder="0 2 * * *" />
+              <input name="cron_expression" placeholder="0 7 * * *" />
+            </label>
+            <label>
+              <span class="cap">Timezone <span class="muted">(optional)</span>
+                <span class="help" tabindex="0" role="img" aria-label="Help"
+                  data-tip="IANA timezone name the crontab is interpreted in — e.g. Europe/Lisbon, UTC, America/New_York. DST-correct. Leave blank for UTC. '0 7 * * *' with Europe/Lisbon fires at 07:00 Lisbon local time, not 07:00 UTC.">?</span>
+              </span>
+              <input name="timezone" list="tz-list" placeholder="UTC (e.g. Europe/Lisbon)" />
+              <datalist id="tz-list">
+                <option value="UTC"></option>
+                <option value="Europe/Lisbon"></option>
+                <option value="Europe/London"></option>
+                <option value="Europe/Madrid"></option>
+                <option value="Europe/Paris"></option>
+                <option value="America/New_York"></option>
+                <option value="America/Los_Angeles"></option>
+                <option value="America/Sao_Paulo"></option>
+                <option value="Asia/Tokyo"></option>
+              </datalist>
             </label>
           </div>
 
@@ -89,7 +107,7 @@
             <label>
               <span class="cap">Run date
                 <span class="help" tabindex="0" role="img" aria-label="Help"
-                  data-tip="Exact moment to fire, one time only. Interpreted in the scheduler's timezone. After it fires the job is finished (one-shot). Use for a single future event rather than a recurring schedule.">?</span>
+                  data-tip="Exact moment to fire, one time only — e.g. 2026-12-31 at 23:59. After it fires the job is finished (one-shot). Use for a single future event rather than a recurring schedule.">?</span>
               </span>
               <input type="datetime-local" name="run_date" />
             </label>
@@ -98,9 +116,9 @@
           <label>
             <span class="cap">Target stream <span class="muted">(optional)</span>
               <span class="help" tabindex="0" role="img" aria-label="Help"
-                data-tip="Where events are published: stream:&lt;this value&gt;. Leave empty to default to stream:&lt;job_id&gt;. Set it to point several jobs at one shared stream, or a 'room' that multiple consumers read. Known at creation time so consumers can subscribe before the first fire.">?</span>
+                data-tip="Bare stream id events are published to — the 'stream:' prefix is added automatically, so enter 'agent-runtime', NOT 'stream:agent-runtime'. Leave empty to default to the job id. Set it to point several jobs at one shared stream that consumers read. Known at creation time so consumers can subscribe before the first fire.">?</span>
             </span>
-            <input name="target_stream_id" placeholder="defaults to stream:&lt;job_id&gt;" />
+            <input name="target_stream_id" placeholder="agent-runtime (no &quot;stream:&quot; prefix)" />
           </label>
 
           <label>
@@ -114,7 +132,7 @@
           <label>
             <span class="cap">Room <span class="muted">(optional)</span>
               <span class="help" tabindex="0" role="img" aria-label="Help"
-                data-tip="Optional hint copied into payload.context.room. Intended for a future room-aware gateway to fan out to a Socket.IO room; ignored otherwise. It does NOT change where the event is published — use Target stream for routing.">?</span>
+                data-tip="Optional hint copied into payload.context.room — e.g. 'ops-dashboard'. Intended for a future room-aware gateway to fan out to a Socket.IO room; ignored otherwise. It does NOT change where the event is published — use Target stream for routing.">?</span>
             </span>
             <input name="room" placeholder="" />
           </label>
@@ -128,14 +146,15 @@
           <label class="full">
             <span class="cap">Event data <span class="muted">(JSON)</span>
               <span class="help" tabindex="0" role="img" aria-label="Help"
-                data-tip="Arbitrary JSON object copied verbatim into payload.data of every emitted event — this is the payload your consumer reads and acts on. Must be a valid JSON object, e.g. { &quot;report&quot;: &quot;daily_sales&quot; }. Leave empty for {}.">?</span>
+                data-tip="Arbitrary JSON object copied verbatim into payload.data of every emitted event — this is the payload your consumer reads and acts on. For the agent-runtime farm, this selects which agent runs, e.g. { &quot;agent&quot;: &quot;news-morning-ai&quot; }. Must be a valid JSON object. Leave empty for {}.">?</span>
             </span>
-            <textarea name="event_data" rows="3" placeholder='{ "report": "daily_sales" }'></textarea>
+            <textarea name="event_data" rows="3" placeholder='{ "agent": "news-morning-ai" }'></textarea>
           </label>
         </div>
 
         <div class="actions">
-          <button type="submit" class="primary">Create</button>
+          <button type="submit" class="primary" id="submit-btn">Create</button>
+          <button type="button" class="ghost" id="cancel-edit" hidden>Cancel</button>
           <span class="form-msg" id="create-msg"></span>
         </div>
       </form>

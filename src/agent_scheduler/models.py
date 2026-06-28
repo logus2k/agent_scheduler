@@ -94,7 +94,11 @@ class JobView(BaseModel):
     job_id: str
     trigger_type: str
     trigger: str
+    # Raw trigger fields (cron_expression/timezone, interval parts, run_date) so
+    # an admin UI can pre-fill an edit form; `trigger` is the human-readable form.
+    trigger_args: dict[str, Any]
     next_run_time: Optional[datetime]
+    target_stream_id: Optional[str]
     resolved_stream: str
     event_type: str
     event_data: dict[str, Any]
@@ -194,7 +198,9 @@ def job_def_to_view(jd: JobDefinition) -> JobView:
         job_id=jd.job_id,
         trigger_type=jd.trigger_type,
         trigger=_trigger_str(jd),
+        trigger_args=jd.trigger_args.model_dump(exclude_none=True),
         next_run_time=next_run_time(jd),
+        target_stream_id=jd.target_stream_id,
         resolved_stream=settings.stream_key(
             resolve_stream_id(jd.job_id, jd.target_stream_id)
         ),

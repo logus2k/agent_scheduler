@@ -140,13 +140,12 @@ export class SchedulerClient {
     return this.createJob({ jobId, triggerType: "interval", triggerArgs: args, ...opts });
   }
 
+  /** @param {object} [opts.timezone] IANA name (e.g. "Europe/Lisbon"); omit for UTC. */
   createCron(jobId, cronExpression, opts = {}) {
-    return this.createJob({
-      jobId,
-      triggerType: "cron",
-      triggerArgs: { cron_expression: cronExpression },
-      ...opts,
-    });
+    const { timezone, ...rest } = opts;
+    const triggerArgs = { cron_expression: cronExpression };
+    if (timezone) triggerArgs.timezone = timezone;
+    return this.createJob({ jobId, triggerType: "cron", triggerArgs, ...rest });
   }
 
   /** @param {string|Date} runDate ISO-8601 string or Date */
