@@ -73,14 +73,37 @@
             </span><input type="number" name="days" min="0" placeholder="0" /></label>
           </div>
 
-          <!-- cron args -->
+          <!-- cron args: five separate fields (order is the #1 source of mistakes) -->
           <div class="trigger-args" data-for="cron" hidden>
-            <label>
-              <span class="cap">Crontab (5-field)
+            <label class="cron-cell">
+              <span class="cap">Minute <span class="muted">0–59</span></span>
+              <input name="cron_min" placeholder="*" autocomplete="off" />
+            </label>
+            <label class="cron-cell">
+              <span class="cap">Hour <span class="muted">0–23</span></span>
+              <input name="cron_hour" placeholder="*" autocomplete="off" />
+            </label>
+            <label class="cron-cell">
+              <span class="cap">Day&nbsp;of&nbsp;month <span class="muted">1–31</span></span>
+              <input name="cron_dom" placeholder="*" autocomplete="off" />
+            </label>
+            <label class="cron-cell">
+              <span class="cap">Month <span class="muted">1–12</span></span>
+              <input name="cron_mon" placeholder="*" autocomplete="off" />
+            </label>
+            <label class="cron-cell">
+              <span class="cap">Weekday <span class="muted">0–6, Sun=0</span>
                 <span class="help" tabindex="0" role="img" aria-label="Help"
-                  data-tip="Standard crontab: minute hour day-of-month month day-of-week. Examples — '0 7 * * *' daily at 07:00; '*/15 * * * *' every 15 minutes; '0 9 * * 1' Mondays at 09:00. Interpreted in the Timezone field below (UTC if left blank).">?</span>
+                  data-tip="Each field accepts a number, * (any), a list (1,3), a range (1-5), or a step (*/15). Field ORDER is minute · hour · day-of-month · month · weekday (Sun=0). Examples — 12:39 daily = 39 12 * * * ; every 15 min = */15 * * * * ; Mondays 09:00 = 0 9 * * 1.">?</span>
               </span>
-              <input name="cron_expression" placeholder="0 7 * * *" />
+              <input name="cron_dow" placeholder="*" autocomplete="off" />
+            </label>
+            <label class="full">
+              <span class="cap">Crontab preview
+                <span class="help" tabindex="0" role="img" aria-label="Help"
+                  data-tip="The five fields above assembled in order. This exact string is what gets scheduled.">?</span>
+              </span>
+              <output id="cron-preview" class="cron-preview">* * * * *</output>
             </label>
             <label>
               <span class="cap">Timezone <span class="muted">(optional)</span>

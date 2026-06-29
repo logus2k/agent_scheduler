@@ -165,8 +165,21 @@ textarea { resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospa
   border-radius: 6px;
 }
 .trigger-args label { flex: 1; min-width: 120px; }
+.trigger-args label.cron-cell { flex: 1 1 84px; min-width: 84px; }
+.cron-cell input { text-align: center; }
+.cron-preview {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  letter-spacing: 1px;
+}
 
 .actions { margin-top: 16px; display: flex; align-items: center; gap: 14px; }
+.actions .form-msg { order: -1; margin-right: auto; }
 
 button {
   cursor: pointer;
