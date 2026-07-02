@@ -50,6 +50,10 @@ class Settings:
     # Persistent hash of job definitions — the admin API's source of truth; the
     # Taskiq schedule source is derived from it.
     registry_key: str = _str("REGISTRY_KEY", "agent_scheduler.registry")
+    # First-class Schedule + Binding stores (§6). Schedules: schedule_id -> JSON;
+    # bindings: binding_id -> JSON (indexed by schedule_id at read time).
+    schedules_key: str = _str("SCHEDULES_KEY", "agent_scheduler.schedules")
+    bindings_key: str = _str("BINDINGS_KEY", "agent_scheduler.bindings")
     # Taskiq broker stream/queue name (its own queue, separate from agent-bus streams).
     taskiq_queue: str = _str("TASKIQ_QUEUE", "agent_scheduler.taskiq")
     # Per-(job,minute) idempotency key TTL — guards Taskiq's at-least-once / double-send

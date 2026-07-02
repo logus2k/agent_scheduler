@@ -15,7 +15,7 @@ import logging
 import redis.asyncio as aioredis
 
 from .config import Settings, settings as default_settings
-from .models import JobDefinition
+from .models import Binding, JobDefinition, Schedule
 
 log = logging.getLogger("agent_scheduler.registry")
 
@@ -24,6 +24,8 @@ class JobRegistry:
     def __init__(self, settings: Settings = default_settings):
         self._settings = settings
         self._key = settings.registry_key
+        self._schedules_key = settings.schedules_key
+        self._bindings_key = settings.bindings_key
         self._redis: aioredis.Redis | None = None
 
     async def connect(self) -> None:
@@ -70,6 +72,63 @@ class JobRegistry:
         removed = await self.redis.hdel(self._key, job_id)
         if removed:
             log.info("registry delete: %s", job_id)
+        return bool(removed)
+
+    # --- Schedules (first-class, §6) ----------------------------------------
+
+    async def schedule_exists(self, schedule_id: str) -> bool:
+        return bool(await self.redis.hexists(self._schedules_key, schedule_id))
+
+    async def get_schedule(self, schedule_id: str) -> Schedule | None:
+        raw = await self.redis.hget(self._schedules_key, schedule_id)
+        return Schedule.model_validate_json(raw) if raw else None
+
+    async def list_schedules(self) -> list[Schedule]:
+        rows = await self.redis.hgetall(self._schedules_key)
+        return [Schedule.model_validate_json(v) for v in rows.values()]
+
+    async def put_schedule(self, sch: Schedule) -> None:
+        await self.redis.hset(self._schedules_key, sch.schedule_id, sch.model_dump_json())
+        log.info("registry put schedule: %s (paused=%s)", sch.schedule_id, sch.paused)
+
+    async def delete_schedule(self, schedule_id: str) -> bool:
+        removed = await self.redis.hdel(self._schedules_key, schedule_id)
+        if removed:
+            log.info("registry delete schedule: %s", schedule_id)
+        return bool(removed)
+
+    # --- Bindings (indexed by schedule_id at read time) ---------------------
+
+    async def binding_exists(self, binding_id: str) -> bool:
+        return bool(await self.redis.hexists(self._bindings_key, binding_id))
+
+    async def get_binding(self, binding_id: str) -> Binding | None:
+        raw = await self.redis.hget(self._bindings_key, binding_id)
+        return Binding.model_validate_json(raw) if raw else None
+
+    async def list_bindings(self) -> list[Binding]:
+        rows = await self.redis.hgetall(self._bindings_key)
+        return [Binding.model_validate_json(v) for v in rows.values()]
+
+    async def bindings_for(self, schedule_id: str) -> list[Binding]:
+        """All bindings attached to a schedule (the fan-out set). Empty is valid
+        (an inconsequent schedule fires nothing)."""
+        return [b for b in await self.list_bindings() if b.schedule_id == schedule_id]
+
+    async def put_binding(self, binding: Binding) -> None:
+        await self.redis.hset(
+            self._bindings_key, binding.binding_id, binding.model_dump_json()
+        )
+        log.info(
+            "registry put binding: %s -> schedule %s",
+            binding.binding_id,
+            binding.schedule_id,
+        )
+
+    async def delete_binding(self, binding_id: str) -> bool:
+        removed = await self.redis.hdel(self._bindings_key, binding_id)
+        if removed:
+            log.info("registry delete binding: %s", binding_id)
         return bool(removed)
 
 

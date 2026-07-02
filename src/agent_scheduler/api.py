@@ -20,11 +20,22 @@ from taskiq.api import run_receiver_task, run_scheduler_task
 from . import emitter
 from .config import settings
 from .models import (
+    Binding,
+    BindingCreate,
+    BindingUpdate,
+    BindingView,
     JobCreate,
     JobDefinition,
     JobUpdate,
     JobView,
+    Schedule,
+    ScheduleCreate,
+    ScheduleUpdate,
+    ScheduleView,
+    binding_to_view,
     job_def_to_view,
+    job_to_schedule_and_binding,
+    schedule_to_view,
     validate_trigger,
 )
 from .registry import registry
@@ -167,6 +178,187 @@ def create_app(*, embed: bool = True, connect_emitter: bool = True) -> FastAPI:
         jd = await _job_or_404(job_id)
         entry_id = await emitter.emit_scheduled_event(**_emit_kwargs(jd))
         return {"status": "fired", "job_id": job_id, "entry_id": entry_id}
+
+    # --- Schedules (first-class, §6) ----------------------------------------
+
+    async def _schedule_or_404(schedule_id: str) -> Schedule:
+        sch = await registry.get_schedule(schedule_id)
+        if sch is None:
+            raise HTTPException(
+                status_code=404, detail=f"schedule not found: {schedule_id}"
+            )
+        return sch
+
+    async def _schedule_view(sch: Schedule) -> ScheduleView:
+        n = len(await registry.bindings_for(sch.schedule_id))
+        return schedule_to_view(sch, n)
+
+    @app.post("/schedules", response_model=ScheduleView, status_code=201)
+    async def create_schedule(body: ScheduleCreate):
+        try:
+            validate_trigger(body.trigger_type, body.trigger_args)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if await registry.schedule_exists(body.schedule_id):
+            raise HTTPException(
+                status_code=409, detail=f"schedule already exists: {body.schedule_id}"
+            )
+        sch = Schedule(**body.model_dump())
+        await registry.put_schedule(sch)
+        return await _schedule_view(sch)
+
+    @app.get("/schedules", response_model=list[ScheduleView])
+    async def list_schedules():
+        return [await _schedule_view(s) for s in await registry.list_schedules()]
+
+    @app.get("/schedules/{schedule_id}", response_model=ScheduleView)
+    async def get_schedule(schedule_id: str):
+        return await _schedule_view(await _schedule_or_404(schedule_id))
+
+    @app.patch("/schedules/{schedule_id}", response_model=ScheduleView)
+    async def update_schedule(schedule_id: str, body: ScheduleUpdate):
+        sch = await _schedule_or_404(schedule_id)
+        data = sch.model_dump()
+        if body.trigger_type is not None or body.trigger_args is not None:
+            if body.trigger_type is None or body.trigger_args is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="trigger_type and trigger_args must be supplied together",
+                )
+            try:
+                validate_trigger(body.trigger_type, body.trigger_args)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            data["trigger_type"] = body.trigger_type
+            data["trigger_args"] = body.trigger_args.model_dump()
+        updated = Schedule.model_validate(data)
+        await registry.put_schedule(updated)
+        return await _schedule_view(updated)
+
+    @app.delete("/schedules/{schedule_id}", status_code=204)
+    async def delete_schedule(schedule_id: str):
+        await _schedule_or_404(schedule_id)
+        # Cascade: drop the schedule's bindings too (they are meaningless orphaned).
+        for b in await registry.bindings_for(schedule_id):
+            await registry.delete_binding(b.binding_id)
+        await registry.delete_schedule(schedule_id)
+        return Response(status_code=204)
+
+    @app.post("/schedules/{schedule_id}/pause", response_model=ScheduleView)
+    async def pause_schedule(schedule_id: str):
+        sch = await _schedule_or_404(schedule_id)
+        sch.paused = True
+        await registry.put_schedule(sch)
+        return await _schedule_view(sch)
+
+    @app.post("/schedules/{schedule_id}/resume", response_model=ScheduleView)
+    async def resume_schedule(schedule_id: str):
+        sch = await _schedule_or_404(schedule_id)
+        sch.paused = False
+        await registry.put_schedule(sch)
+        return await _schedule_view(sch)
+
+    @app.post("/schedules/{schedule_id}/run", status_code=202)
+    async def run_schedule(schedule_id: str):
+        """Fan out once now, off-schedule and un-deduped: emit one event per
+        binding (nothing if the schedule has zero bindings)."""
+        sch = await _schedule_or_404(schedule_id)
+        bindings = await registry.bindings_for(schedule_id)
+        entries = []
+        for b in bindings:
+            entry_id = await emitter.emit_scheduled_event(
+                job_id=b.binding_id,
+                target_stream_id=b.target_stream_id,
+                event_type=b.event_type,
+                event_data=b.event_data,
+                room=b.room,
+                trigger_type=sch.trigger_type,
+            )
+            entries.append({"binding_id": b.binding_id, "entry_id": entry_id})
+        return {"status": "fired", "schedule_id": schedule_id, "emitted": entries}
+
+    # --- Bindings (schedule -> action) --------------------------------------
+
+    async def _binding_or_404(schedule_id: str, binding_id: str) -> Binding:
+        b = await registry.get_binding(binding_id)
+        if b is None or b.schedule_id != schedule_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"binding not found: {binding_id} on schedule {schedule_id}",
+            )
+        return b
+
+    @app.post(
+        "/schedules/{schedule_id}/bindings",
+        response_model=BindingView,
+        status_code=201,
+    )
+    async def create_binding(schedule_id: str, body: BindingCreate):
+        await _schedule_or_404(schedule_id)
+        if await registry.binding_exists(body.binding_id):
+            raise HTTPException(
+                status_code=409, detail=f"binding already exists: {body.binding_id}"
+            )
+        b = Binding(schedule_id=schedule_id, **body.model_dump())
+        await registry.put_binding(b)
+        return binding_to_view(b)
+
+    @app.get("/schedules/{schedule_id}/bindings", response_model=list[BindingView])
+    async def list_bindings(schedule_id: str):
+        await _schedule_or_404(schedule_id)
+        return [binding_to_view(b) for b in await registry.bindings_for(schedule_id)]
+
+    @app.get(
+        "/schedules/{schedule_id}/bindings/{binding_id}", response_model=BindingView
+    )
+    async def get_binding(schedule_id: str, binding_id: str):
+        return binding_to_view(await _binding_or_404(schedule_id, binding_id))
+
+    @app.patch(
+        "/schedules/{schedule_id}/bindings/{binding_id}", response_model=BindingView
+    )
+    async def update_binding(schedule_id: str, binding_id: str, body: BindingUpdate):
+        b = await _binding_or_404(schedule_id, binding_id)
+        data = b.model_dump()
+        for field in ("target_stream_id", "event_type", "event_data", "room"):
+            val = getattr(body, field)
+            if val is not None:
+                data[field] = val
+        updated = Binding.model_validate(data)
+        await registry.put_binding(updated)
+        return binding_to_view(updated)
+
+    @app.delete(
+        "/schedules/{schedule_id}/bindings/{binding_id}", status_code=204
+    )
+    async def delete_binding(schedule_id: str, binding_id: str):
+        await _binding_or_404(schedule_id, binding_id)
+        await registry.delete_binding(binding_id)
+        return Response(status_code=204)
+
+    # --- Migration: welded jobs -> Schedule + Binding -----------------------
+
+    @app.post("/migrate/jobs-to-schedules", status_code=200)
+    async def migrate_jobs_to_schedules(delete_jobs: bool = False):
+        """Idempotent migration: each welded job -> one Schedule + one Binding.
+
+        Loud on anything it can't map (re-raises). Leaves the source jobs in
+        place by default (reversible) unless ``delete_jobs=true``."""
+        migrated = []
+        for jd in await registry.list():
+            sch, binding = job_to_schedule_and_binding(jd)
+            await registry.put_schedule(sch)
+            await registry.put_binding(binding)
+            if delete_jobs:
+                await registry.delete(jd.job_id)
+            migrated.append(
+                {
+                    "job_id": jd.job_id,
+                    "schedule_id": sch.schedule_id,
+                    "binding_id": binding.binding_id,
+                }
+            )
+        return {"migrated": migrated, "count": len(migrated), "jobs_deleted": delete_jobs}
 
     # --- ops ---------------------------------------------------------------
 
