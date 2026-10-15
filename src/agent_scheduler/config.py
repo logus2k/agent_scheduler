@@ -64,6 +64,31 @@ class Settings:
     sender_id: str = _str("SENDER_ID", "agent_scheduler")
     default_event_type: str = _str("DEFAULT_EVENT_TYPE", "schedule.fired")
 
+    # --- Bus ingress: the `schedule.requested` consumer (the "Scheduler-bridge") ---
+    # When on, a background consumer-group tails a dedicated request stream and
+    # registers a Schedule (+ Binding) from each `schedule.requested` event — so an
+    # agent can self-schedule over the bus instead of the REST API. Registration is
+    # an idempotent upsert by schedule_id/binding_id, so at-least-once redelivery is
+    # safe. The emitted event still targets its OWN project stream (carried in the
+    # request); this request stream is only the control channel.
+    ingress_enabled: bool = _bool("INGRESS_ENABLED", True)
+    # Bare id of the control stream agents publish requests onto (full key
+    # `stream:<id>`). Distinct from any project/target stream.
+    ingress_stream_id: str = _str("INGRESS_STREAM_ID", "schedule-requests")
+    # This service's consumer group (one group → competing consumers load-balance).
+    ingress_group: str = _str("INGRESS_GROUP", "cg:agent_scheduler")
+    # Base consumer name; the live id appends host+pid (see bus_consumer.make_consumer).
+    ingress_consumer_name: str = _str("INGRESS_CONSUMER_NAME", "agent_scheduler-ingress")
+    # The event_type this service acts on; any other type on the stream is acked+ignored.
+    request_event_type: str = _str("REQUEST_EVENT_TYPE", "schedule.requested")
+    # XREADGROUP block/count per poll.
+    ingress_block_ms: int = _int("INGRESS_BLOCK_MS", 5000)
+    ingress_count: int = _int("INGRESS_COUNT", 32)
+    # Idle threshold (ms) for reclaiming crash-pending requests at startup (XAUTOCLAIM).
+    ingress_reclaim_min_idle_ms: int = _int("INGRESS_RECLAIM_MIN_IDLE_MS", 60000)
+    # Dead-letter stream for unparseable / invalid requests (matches agent_bus).
+    dlq_stream: str = _str("DLQ_STREAM", "stream:dlq")
+
     # --- Misfire policy (defines behavior around downtime) ---
     # A fire whose scheduled time was missed by more than this many seconds is
     # skipped (logged as missed) rather than run late. Raise it to allow catch-up.
@@ -100,6 +125,10 @@ class Settings:
     def stream_key(self, stream_id: str) -> str:
         """The dedicated stream key for a target: ``stream:<stream_id>``."""
         return f"{self.stream_prefix}{stream_id}"
+
+    def ingress_stream_key(self) -> str:
+        """Full key of the control stream the ingress consumer tails."""
+        return self.stream_key(self.ingress_stream_id)
 
     def redis_url(self) -> str:
         """redis-py URL for the Taskiq broker + job registry (same valkey-bus)."""

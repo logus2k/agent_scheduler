@@ -393,6 +393,66 @@ def binding_to_view(b: Binding) -> BindingView:
 
 # --- migration: one welded job -> one Schedule + one Binding ------------------
 
+class ScheduleRequest(BaseModel):
+    """The ``schedule.requested`` bus contract (``payload.data``).
+
+    An agent asks the scheduler to register recurring (or one-shot) work that
+    emits ``event_type`` with ``event_data`` onto ``target_stream_id`` whenever
+    the trigger fires. Maps to exactly one :class:`Schedule` + one
+    :class:`Binding`. Re-sending the same ``schedule_id`` upserts (idempotent),
+    unless ``replace`` is false and the schedule already exists.
+    """
+
+    schedule_id: str
+    trigger_type: TriggerType
+    trigger_args: TriggerArgs
+    # What each fire emits:
+    event_type: str = Field(default_factory=lambda: settings.default_event_type)
+    event_data: dict[str, Any] = Field(default_factory=dict)
+    # Where to emit; None derives the stream from the (single) binding id.
+    target_stream_id: Optional[str] = None
+    room: Optional[str] = None
+    # Binding id; defaults to a deterministic ``<schedule_id>:b0`` so a re-send upserts.
+    binding_id: Optional[str] = None
+    paused: bool = False
+    # Upsert if the schedule already exists (False = leave an existing one untouched).
+    replace: bool = True
+
+    @field_validator("schedule_id", "binding_id")
+    @classmethod
+    def _valid_id(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not ID_RE.match(v):
+            raise ValueError(
+                "schedule_id/binding_id must match ^[A-Za-z0-9._:-]+$ "
+                "(they become a hash field / stream key)"
+            )
+        return v
+
+
+def schedule_request_to_schedule_and_binding(
+    req: ScheduleRequest,
+) -> tuple[Schedule, Binding]:
+    """Map a bus ``ScheduleRequest`` to its Schedule + single Binding.
+
+    The binding id is derived deterministically (``<schedule_id>:b0``) when the
+    request omits one, so re-sending the same request upserts the same pair."""
+    schedule = Schedule(
+        schedule_id=req.schedule_id,
+        trigger_type=req.trigger_type,
+        trigger_args=req.trigger_args,
+        paused=req.paused,
+    )
+    binding = Binding(
+        binding_id=req.binding_id or f"{req.schedule_id}:b0",
+        schedule_id=req.schedule_id,
+        target_stream_id=req.target_stream_id,
+        event_type=req.event_type or settings.default_event_type,
+        event_data=req.event_data or {},
+        room=req.room,
+    )
+    return schedule, binding
+
+
 def job_to_schedule_and_binding(jd: JobDefinition) -> tuple[Schedule, Binding]:
     """Faithfully split a welded job into its pure Schedule and a single Binding.
 

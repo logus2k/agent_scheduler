@@ -17,7 +17,8 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from taskiq.api import run_receiver_task, run_scheduler_task
 
-from . import emitter
+from . import emitter, ingress
+from .bus_consumer import Consumer, make_consumer
 from .config import settings
 from .models import (
     Binding,
@@ -72,10 +73,43 @@ def create_app(*, embed: bool = True, connect_emitter: bool = True) -> FastAPI:
                 asyncio.create_task(run_receiver_task(broker), name="taskiq-worker"),
                 asyncio.create_task(run_scheduler_task(scheduler), name="taskiq-scheduler"),
             ]
+
+        # Bus ingress (the "Scheduler-bridge"): tail schedule.requested and register
+        # Schedule+Binding from it. Needs the bus (connect_emitter) and the embedded
+        # scheduler (embed) to actually fire what it registers.
+        ingress_consumer: Consumer | None = None
+        ingress_stop = asyncio.Event()
+        if embed and connect_emitter and settings.ingress_enabled:
+            ingress_consumer = await Consumer.create(settings)
+            await ingress_consumer.ensure_group(
+                settings.ingress_stream_key(), settings.ingress_group, start="0"
+            )
+            bg.append(
+                asyncio.create_task(
+                    ingress.run_ingress_loop(
+                        ingress_consumer,
+                        stream=settings.ingress_stream_key(),
+                        group=settings.ingress_group,
+                        consumer_name=make_consumer(settings.ingress_consumer_name),
+                        block_ms=settings.ingress_block_ms,
+                        count=settings.ingress_count,
+                        reclaim_min_idle_ms=settings.ingress_reclaim_min_idle_ms,
+                        stop=ingress_stop,
+                    ),
+                    name="bus-ingress",
+                )
+            )
+            log.info(
+                "bus ingress on %s (group %s)",
+                settings.ingress_stream_key(),
+                settings.ingress_group,
+            )
+
         log.info("agent_scheduler up — API on %s:%s", settings.api_host, settings.api_port)
         try:
             yield
         finally:
+            ingress_stop.set()
             for t in bg:
                 t.cancel()
             for t in bg:
@@ -83,6 +117,8 @@ def create_app(*, embed: bool = True, connect_emitter: bool = True) -> FastAPI:
                     await t
                 except asyncio.CancelledError:
                     pass
+            if ingress_consumer is not None:
+                await ingress_consumer.close()
             if embed:
                 await broker.shutdown()
             if connect_emitter:
